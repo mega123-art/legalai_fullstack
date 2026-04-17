@@ -1,0 +1,35 @@
+# Dependencies
+**/node_modules/
+**/venv/
+**/.venv/
+**/__pycache__/
+
+# Build outputs
+**/.next/
+**/out/
+**/build/
+**/dist/
+
+# Env & Secrets
+**/.env*
+**.pem
+**.key
+**/id_rsa
+
+# OS & IDE
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+**.log
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Local Data
+**/processed/
+**/catalog.db
+**/embedded_ids.txt

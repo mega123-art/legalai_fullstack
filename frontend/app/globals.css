@@ -1,0 +1,221 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-heading: var(--font-sans);
+
+  /* shadcn tokens */
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+
+  /* LegalAI semantic tokens */
+  --color-surface-base: var(--surface-base);
+  --color-surface-sunken: var(--surface-sunken);
+  --color-surface-panel: var(--surface-panel);
+  --color-surface-raised: var(--surface-raised);
+  --color-surface-card: var(--surface-card);
+  --color-surface-card-hover: var(--surface-card-hover);
+  --color-surface-input: var(--surface-input);
+
+  --color-fg-default: var(--fg-default);
+  --color-fg-muted: var(--fg-muted);
+  --color-fg-subtle: var(--fg-subtle);
+  --color-fg-faint: var(--fg-faint);
+
+  --color-border-subtle: var(--border-subtle);
+  --color-border-default: var(--border-default);
+  --color-border-strong: var(--border-strong);
+
+  --color-hover-subtle: var(--hover-subtle);
+  --color-hover-default: var(--hover-default);
+  --color-hover-strong: var(--hover-strong);
+  --color-hover-active: var(--hover-active);
+
+  --color-action-primary: var(--action-primary);
+  --color-action-primary-fg: var(--action-primary-fg);
+  --color-action-disabled: var(--action-disabled);
+  --color-action-disabled-fg: var(--action-disabled-fg);
+
+  --color-brand-navy: var(--brand-navy);
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+/* ── LIGHT — editorial paper ────────────────────────────────── */
+:root {
+  --radius: 0.5rem;
+
+  /* semantic surfaces — warm cream, aged paper */
+  --surface-base: #f6f1e7;
+  --surface-sunken: #ece5d3;
+  --surface-panel: #f1ead9;
+  --surface-raised: #fbf7ec;
+  --surface-card: #fbf7ec;
+  --surface-card-hover: #efe7d2;
+  --surface-input: #efe7d2;
+
+  /* foreground — ink */
+  --fg-default: #1a1612;
+  --fg-muted: #4a4036;
+  --fg-subtle: #6b5e50;
+  --fg-faint: #9a8b78;
+
+  /* borders */
+  --border-subtle: rgba(26, 22, 18, 0.08);
+  --border-default: rgba(26, 22, 18, 0.14);
+  --border-strong: rgba(26, 22, 18, 0.22);
+
+  /* hover overlays */
+  --hover-subtle: rgba(26, 22, 18, 0.04);
+  --hover-default: rgba(26, 22, 18, 0.07);
+  --hover-strong: rgba(26, 22, 18, 0.11);
+  --hover-active: rgba(26, 22, 18, 0.16);
+
+  /* action primary = deep burgundy */
+  --action-primary: #6b1d2c;
+  --action-primary-fg: #fbf7ec;
+  --action-disabled: rgba(26, 22, 18, 0.1);
+  --action-disabled-fg: rgba(26, 22, 18, 0.35);
+
+  --brand-navy: #6b1d2c;
+
+  /* shadcn mirrored */
+  --background: var(--surface-base);
+  --foreground: var(--fg-default);
+  --card: var(--surface-card);
+  --card-foreground: var(--fg-default);
+  --popover: var(--surface-raised);
+  --popover-foreground: var(--fg-default);
+  --primary: var(--action-primary);
+  --primary-foreground: var(--action-primary-fg);
+  --secondary: var(--surface-input);
+  --secondary-foreground: var(--fg-default);
+  --muted: var(--surface-input);
+  --muted-foreground: var(--fg-muted);
+  --accent: var(--surface-card-hover);
+  --accent-foreground: var(--fg-default);
+  --destructive: oklch(0.48 0.17 22);
+  --border: var(--border-default);
+  --input: var(--border-default);
+  --ring: rgba(107, 29, 44, 0.4);
+  --sidebar: var(--surface-sunken);
+  --sidebar-foreground: var(--fg-default);
+  --sidebar-primary: var(--action-primary);
+  --sidebar-primary-foreground: var(--action-primary-fg);
+  --sidebar-accent: var(--surface-card-hover);
+  --sidebar-accent-foreground: var(--fg-default);
+  --sidebar-border: var(--border-subtle);
+  --sidebar-ring: var(--ring);
+}
+
+/* ── DARK — editorial paper (night press) ─────────────────── */
+.dark {
+  /* semantic surfaces — warm dark, not black */
+  --surface-base: #1b1612;
+  --surface-sunken: #14100d;
+  --surface-panel: #1e1814;
+  --surface-raised: #26201a;
+  --surface-card: #241e18;
+  --surface-card-hover: #2e2720;
+  --surface-input: #2a231d;
+
+  /* foreground — bone */
+  --fg-default: #ece4d3;
+  --fg-muted: #a79a85;
+  --fg-subtle: #7d7262;
+  --fg-faint: #574f44;
+
+  /* borders */
+  --border-subtle: rgba(236, 228, 211, 0.06);
+  --border-default: rgba(236, 228, 211, 0.10);
+  --border-strong: rgba(236, 228, 211, 0.16);
+
+  /* hover overlays */
+  --hover-subtle: rgba(236, 228, 211, 0.05);
+  --hover-default: rgba(236, 228, 211, 0.08);
+  --hover-strong: rgba(236, 228, 211, 0.12);
+  --hover-active: rgba(236, 228, 211, 0.18);
+
+  /* action primary = warm bone */
+  --action-primary: #ece4d3;
+  --action-primary-fg: #1b1612;
+  --action-disabled: rgba(236, 228, 211, 0.18);
+  --action-disabled-fg: #7d7262;
+
+  --brand-navy: #a83246;
+
+  /* shadcn mirrored */
+  --background: var(--surface-base);
+  --foreground: var(--fg-default);
+  --card: var(--surface-raised);
+  --card-foreground: var(--fg-default);
+  --popover: var(--surface-raised);
+  --popover-foreground: var(--fg-default);
+  --primary: var(--action-primary);
+  --primary-foreground: var(--action-primary-fg);
+  --secondary: var(--surface-input);
+  --secondary-foreground: var(--fg-default);
+  --muted: var(--surface-input);
+  --muted-foreground: var(--fg-muted);
+  --accent: var(--surface-card-hover);
+  --accent-foreground: var(--fg-default);
+  --destructive: oklch(0.65 0.18 22);
+  --border: var(--border-default);
+  --input: var(--border-default);
+  --ring: rgba(236, 228, 211, 0.22);
+  --sidebar: var(--surface-sunken);
+  --sidebar-foreground: var(--fg-default);
+  --sidebar-primary: var(--action-primary);
+  --sidebar-primary-foreground: var(--action-primary-fg);
+  --sidebar-accent: var(--surface-raised);
+  --sidebar-accent-foreground: var(--fg-default);
+  --sidebar-border: var(--border-subtle);
+  --sidebar-ring: var(--ring);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-surface-base text-fg-default;
+  }
+  html {
+    @apply font-sans;
+  }
+}
