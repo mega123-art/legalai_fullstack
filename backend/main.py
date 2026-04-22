@@ -50,4 +50,10 @@ app.include_router(export.router)
 
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    from services import search_service
+    return {
+        "status": "ok",
+        "search_initialized": search_service._initialized,
+        "index_loaded": search_service._index is not None,
+        "model_loaded": search_service._bi_model is not None,
+    }

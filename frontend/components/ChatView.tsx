@@ -28,9 +28,11 @@ export default function ChatView({ initialSessionId }: ChatViewProps) {
 
   // Load existing messages when sessionId is known on mount
   const loadedSessionRef = useRef<string | null>(null);
+  const createdSessionsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (!sessionId || !user?.id) return;
     if (loadedSessionRef.current === sessionId) return;
+    if (createdSessionsRef.current.has(sessionId)) return; // skip sessions we just created
     loadedSessionRef.current = sessionId;
     getMessages(sessionId, user.id)
       .then((r) => setMessages(r.messages))
@@ -55,6 +57,7 @@ export default function ChatView({ initialSessionId }: ChatViewProps) {
         if (!sid) {
           const { session_id } = await createSession(user.id);
           sid = session_id;
+          createdSessionsRef.current.add(sid);
           setSessionId(sid);
           window.history.pushState({}, "", `/chat/${sid}`);
         }
