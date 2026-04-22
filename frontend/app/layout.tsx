@@ -17,7 +17,7 @@ const lato = Lato({
 });
 
 export const metadata: Metadata = {
-  title: "LegalAI — Indian Legal Research",
+  title: "Lawsumm — Indian Legal Research",
   description: "Search 18,000+ Supreme Court judgments in plain English",
 };
 

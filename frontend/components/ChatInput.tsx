@@ -2,8 +2,13 @@
 
 import { useRef, useState, useEffect, KeyboardEvent } from "react";
 
+interface YearRange {
+  from?: number;
+  to?: number;
+}
+
 interface Filters {
-  year?: number;
+  yearRange?: YearRange;
   outcome?: string;
   historical?: boolean;
 }
@@ -14,18 +19,19 @@ interface ChatInputProps {
   showFilters?: boolean;
 }
 
-const YEAR_OPTIONS = [
-  { label: "All Years", value: undefined },
-  { label: "2020–2024", value: 2022 },
-  { label: "2015–2019", value: 2017 },
-  { label: "2010–2014", value: 2012 },
-] as const;
+const YEAR_OPTIONS: { label: string; range?: YearRange }[] = [
+  { label: "All Years" },
+  { label: "2020–present", range: { from: 2020 } },
+  { label: "2015–2019",    range: { from: 2015, to: 2019 } },
+  { label: "2010–2014",    range: { from: 2010, to: 2014 } },
+  { label: "2006–2009",    range: { from: 2006, to: 2009 } },
+];
 
-const OUTCOME_OPTIONS = [
-  { label: "Any Outcome", value: undefined },
-  { label: "Allowed", value: "allowed" },
+const OUTCOME_OPTIONS: { label: string; value?: string }[] = [
+  { label: "Any Outcome" },
+  { label: "Allowed",   value: "allowed" },
   { label: "Dismissed", value: "dismissed" },
-] as const;
+];
 
 export default function ChatInput({ onSubmit, isLoading, showFilters = false }: ChatInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -57,6 +63,12 @@ export default function ChatInput({ onSubmit, isLoading, showFilters = false }: 
     setFilters((f) => ({ ...f, [key]: val }));
   }
 
+  function yearRangeEquals(a?: YearRange, b?: YearRange): boolean {
+    if (!a && !b) return true;
+    if (!a || !b) return false;
+    return a.from === b.from && a.to === b.to;
+  }
+
   const pillBase = "px-3 py-1 rounded-full text-xs cursor-pointer transition-colors duration-150";
   const pillActive = "bg-hover-active text-fg-default";
   const pillIdle = "bg-hover-subtle text-fg-muted hover:bg-hover-strong hover:text-fg-default";
@@ -68,8 +80,8 @@ export default function ChatInput({ onSubmit, isLoading, showFilters = false }: 
           {YEAR_OPTIONS.map((opt) => (
             <button
               key={opt.label}
-              onClick={() => setFilter("year", opt.value)}
-              className={`${pillBase} ${filters.year === opt.value ? pillActive : pillIdle}`}
+              onClick={() => setFilter("yearRange", opt.range)}
+              className={`${pillBase} ${yearRangeEquals(filters.yearRange, opt.range) ? pillActive : pillIdle}`}
             >
               {opt.label}
             </button>
@@ -127,7 +139,7 @@ export default function ChatInput({ onSubmit, isLoading, showFilters = false }: 
       </div>
 
       <p className="text-center text-[11px] text-fg-subtle mt-2">
-        LegalAI searches 18,000+ Supreme Court judgments · Not legal advice
+        Lawsumm searches 18,000+ Supreme Court judgments · Not legal advice
       </p>
     </div>
   );

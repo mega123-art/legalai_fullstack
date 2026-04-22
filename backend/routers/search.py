@@ -15,8 +15,10 @@ router = APIRouter()
 class SearchRequest(BaseModel):
     query: str
     session_id: Optional[str] = None
-    filter_year: Optional[int] = None
-    outcome_filter: Optional[str] = None   # "Allowed" | "Dismissed" (from UI pills)
+    filter_year: Optional[int] = None       # legacy single-year (kept for compat)
+    year_from: Optional[int] = None         # range start (inclusive)
+    year_to: Optional[int] = None           # range end (inclusive)
+    outcome_filter: Optional[str] = None    # "allowed" | "dismissed"
     historical: bool = False
 
 
@@ -32,10 +34,18 @@ async def search(req: SearchRequest):
 
     # Offload sync search (InLegalBERT + Pinecone + reranker) to thread pool
     # so FastAPI event loop is not blocked for concurrent requests
+    # Resolve year range: prefer explicit range, fall back to legacy single-year ±2
+    year_from = req.year_from
+    year_to = req.year_to
+    if year_from is None and year_to is None and req.filter_year:
+        year_from = req.filter_year - 2
+        year_to = req.filter_year + 2
+
     cases, understood_as = await asyncio.to_thread(
         search_service.run_search,
         query=req.query,
-        filter_year=req.filter_year,
+        year_from=year_from,
+        year_to=year_to,
         historical=req.historical,
         outcome_filter=req.outcome_filter,
     )

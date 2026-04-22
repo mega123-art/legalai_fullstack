@@ -31,7 +31,7 @@ export default function SessionPage() {
   }, [sessionId, user.id]);
 
   const handleSubmit = useCallback(
-    async (query: string, filters: { year?: number; outcome?: string; historical?: boolean }) => {
+    async (query: string, filters: { yearRange?: { from?: number; to?: number }; outcome?: string; historical?: boolean }) => {
       setIsLoading(true);
 
       const optimisticUserMsg: ChatMessage = {
@@ -46,7 +46,8 @@ export default function SessionPage() {
         const result = await search({
           query,
           session_id: sessionId,
-          filter_year: filters.year,
+          year_from: filters.yearRange?.from,
+          year_to: filters.yearRange?.to,
           outcome_filter: filters.outcome,
           historical: filters.historical,
         });
@@ -124,7 +125,7 @@ export default function SessionPage() {
               <line x1="3" y1="18" x2="21" y2="18"/>
             </svg>
           </button>
-          <span className="ml-3 font-heading font-semibold text-[15px] text-fg-default">LegalAI</span>
+          <span className="ml-3 font-heading font-semibold text-[15px] text-fg-default">Lawsumm</span>
         </div>
 
         {messages.length === 0 ? (

@@ -14,14 +14,15 @@ export default function ChatPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  async function handleSubmit(query: string, filters: { year?: number; outcome?: string; historical?: boolean }) {
+  async function handleSubmit(query: string, filters: { yearRange?: { from?: number; to?: number }; outcome?: string; historical?: boolean }) {
     setIsLoading(true);
     try {
       const { session_id } = await createSession(user.id);
       await search({
         query,
         session_id,
-        filter_year: filters.year,
+        year_from: filters.yearRange?.from,
+        year_to: filters.yearRange?.to,
         outcome_filter: filters.outcome,
         historical: filters.historical,
       });
@@ -69,7 +70,7 @@ export default function ChatPage() {
               <line x1="3" y1="18" x2="21" y2="18"/>
             </svg>
           </button>
-          <span className="ml-3 font-heading font-semibold text-[15px] text-fg-default">LegalAI</span>
+          <span className="ml-3 font-heading font-semibold text-[15px] text-fg-default">Lawsumm</span>
         </div>
 
         {/* Empty state */}

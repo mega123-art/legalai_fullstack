@@ -19,7 +19,8 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
 export async function search(params: {
   query: string;
   session_id?: string;
-  filter_year?: number;
+  year_from?: number;
+  year_to?: number;
   outcome_filter?: string;
   historical?: boolean;
 }): Promise<SearchResponse> {

@@ -34,16 +34,11 @@ def init_search(local_only: bool = True) -> None:
 def run_search(
     query: str,
     filter_year: Optional[int] = None,
+    year_from: Optional[int] = None,
+    year_to: Optional[int] = None,
     historical: bool = False,
     outcome_filter: Optional[str] = None,
 ) -> list[dict]:
-    """
-    Run intelligent search and return serialisable case dicts.
-    outcome_filter is not passed as a hard filter — the pipeline
-    uses soft-boost internally when the keyword appears in the query.
-    If the caller passes a distinct outcome_filter (from UI pills),
-    we append it to the query so the pipeline's keyword detector fires.
-    """
     if not _initialized:
         raise RuntimeError("Search not initialised. Call init_search() first.")
 
@@ -57,6 +52,8 @@ def run_search(
         index=_index,
         reranker=_reranker,
         filter_year=filter_year,
+        year_from=year_from,
+        year_to=year_to,
         historical=historical,
     )
 
@@ -92,6 +89,14 @@ def run_search(
             seen_parties.add(party_key)
             deduped.append(r)
     results = deduped[:5]
+
+    # Outcome post-filter — only apply if ≥2 results survive (avoid empty result set)
+    if outcome_filter:
+        needle = outcome_filter.lower()
+        filtered = [r for r in results if needle in (r.get("outcome") or "").lower()]
+        if len(filtered) >= 2:
+            results = filtered
+
     return results, expansion
 
 

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { useClerk } from "@clerk/nextjs";
-import { getSessions, createSession, deleteSession } from "@/lib/api";
+import { getSessions, deleteSession } from "@/lib/api";
 import type { Session } from "@/lib/types";
 import ThemeToggle from "./ThemeToggle";
 
@@ -52,10 +52,9 @@ export default function Sidebar({ userId, userName = "User", isOpen, onClose }: 
       .catch(console.error);
   }, [userId]);
 
-  async function handleNewSearch() {
-    const { session_id } = await createSession(userId);
+  function handleNewSearch() {
     onClose();
-    router.push(`/chat/${session_id}`);
+    router.push("/chat");
   }
 
   function navigate(id: string) {
@@ -107,7 +106,7 @@ export default function Sidebar({ userId, userName = "User", isOpen, onClose }: 
             <path d="M13 15l4-4 4 4"/><path d="M13 15h8"/>
           </svg>
           <span className="font-heading font-semibold text-[15px] text-fg-default tracking-tight">
-            LegalAI
+            Lawsumm
           </span>
           {/* Close on mobile */}
           <button

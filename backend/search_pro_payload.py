@@ -705,6 +705,8 @@ def search_pro_diverse(
     index,
     reranker,
     filter_year=None,
+    year_from=None,
+    year_to=None,
     historical=False,
     namespace: str = "",
     use_queryfy: bool = True,
@@ -731,17 +733,25 @@ def search_pro_diverse(
     except Exception as _e:
         print(f"[famous_cases] lookup failed: {_e}")
 
-    # ── Infer year from query if not explicitly filtered ─────
-    if not filter_year:
+    # ── Infer year from query if no explicit year filter given ──
+    if not filter_year and year_from is None and year_to is None:
         inferred_year = _extract_year_from_query(query)
         if inferred_year:
             filter_year = inferred_year
             print(f"[*] Year inferred from query: {inferred_year}")
 
-    # ── Build metadata filter ──────────────────────────────────
-    # Year fuzz ±1 — reporting year (SCR vol) often differs from decision year.
+    # ── Build metadata filter ────────────────────────────────────
     filter_meta: dict = {}
-    if filter_year:
+    if year_from is not None or year_to is not None:
+        # Explicit range from UI — no fuzz needed
+        yr_filter: dict = {}
+        if year_from is not None:
+            yr_filter["$gte"] = int(year_from)
+        if year_to is not None:
+            yr_filter["$lte"] = int(year_to)
+        filter_meta["year"] = yr_filter
+    elif filter_year:
+        # Legacy single-year — ±1 fuzz for SCR reporting-year drift
         y = int(filter_year)
         filter_meta["year"] = {"$gte": y - 1, "$lte": y + 1}
 

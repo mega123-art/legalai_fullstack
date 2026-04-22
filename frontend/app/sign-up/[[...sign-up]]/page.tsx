@@ -6,7 +6,7 @@ export default function SignUpPage() {
       <div className="text-center space-y-6">
         <div className="space-y-1">
           <h1 className="font-heading text-2xl font-semibold text-fg-default tracking-tight">
-            LegalAI
+            Lawsumm
           </h1>
           <p className="text-sm text-fg-muted">
             Create your account
