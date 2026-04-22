@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import Sidebar from "@/components/Sidebar";
 import ChatInput from "@/components/ChatInput";
 import MessageList from "@/components/MessageList";
@@ -14,6 +14,7 @@ import type { ChatMessage, CaseResult } from "@/lib/types";
 
 export default function SessionPage() {
   const params = useParams();
+  const router = useRouter();
   const sessionId = params.sessionId as string;
   const { user, isLoaded } = useCurrentUser();
 
@@ -23,11 +24,11 @@ export default function SessionPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
-    if (!sessionId) return;
-    getMessages(sessionId)
+    if (!sessionId || !user.id) return;
+    getMessages(sessionId, user.id)
       .then((r) => setMessages(r.messages))
       .catch(console.error);
-  }, [sessionId]);
+  }, [sessionId, user.id]);
 
   const handleSubmit = useCallback(
     async (query: string, filters: { year?: number; outcome?: string; historical?: boolean }) => {
@@ -87,6 +88,11 @@ export default function SessionPage() {
         Loading…
       </div>
     );
+  }
+
+  if (!user.id) {
+    router.replace("/sign-in");
+    return null;
   }
 
   return (

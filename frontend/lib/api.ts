@@ -262,8 +262,8 @@ export async function getSessions(user_id: string): Promise<{ sessions: Session[
   return apiFetch(`/api/sessions/${user_id}`);
 }
 
-export async function getMessages(session_id: string): Promise<{ messages: ChatMessage[] }> {
-  return apiFetch(`/api/sessions/${session_id}/messages`);
+export async function getMessages(session_id: string, user_id: string): Promise<{ messages: ChatMessage[] }> {
+  return apiFetch(`/api/sessions/${session_id}/messages?user_id=${encodeURIComponent(user_id)}`);
 }
 
 export async function deleteSession(session_id: string, user_id: string): Promise<{ deleted: boolean }> {

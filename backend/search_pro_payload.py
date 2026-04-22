@@ -270,6 +270,230 @@ def _get_catalog_db() -> sqlite3.Connection:
     return _catalog_db_conn
 
 
+# ─── Domain pre-filter patterns ──────────────────────────────────────────────
+# Tuple: (query_signals, primary_patterns, and_patterns_optional)
+# primary_patterns  — SQLite OR: text must match at least one
+# and_patterns      — SQLite AND on top: text must also match at least one (compound)
+# Order matters — first match wins. Put specific/compound before general.
+_DOMAIN_PREFILTERS: list[tuple[list[str], list[str], list[str]]] = [
+    # (query_signals, primary_patterns, and_patterns)
+    # Order matters — first match wins. Put specific before general.
+
+    # ── Criminal — compound bail filters (specific offence + bail) ─────────────
+    (
+        ["anticipatory bail", "section 438", "s.438", "s. 438"],
+        ["section 438", "anticipatory bail"],
+        [],
+    ),
+    # bail + murder: narrow to cases that mention both bail and 302/murder
+    (
+        ["bail", "section 439", "s.439", "bail rejected", "bail denied", "bail refused"],
+        ["section 439", "bail application", "bail in"],
+        # AND: only when query also mentions murder
+        # Handled dynamically in _sqlite_domain_prefilter
+        [],
+    ),
+    (
+        ["ndps", "narcotic", "drug trafficking", "drug offence"],
+        ["ndps act", "narcotic drugs", "section 37 of the ndps"],
+    ),
+    (
+        ["pocso", "sexual offence against child", "child abuse"],
+        ["pocso act", "protection of children from sexual offences"],
+        [],
+    ),
+    (
+        ["habeas corpus", "illegal detention", "preventive detention", "detained without trial",
+         "unlawful detention"],
+        ["habeas corpus", "preventive detention"],
+        [],
+    ),
+    (
+        ["contempt of court", "disobeyed court order", "violation of court order",
+         "wilful disobedience"],
+        ["contempt of court", "contempt of courts act"],
+        [],
+    ),
+
+    # ── Service / Employment ───────────────────────────────────────────────────
+    (
+        ["fired", "sacked", "dismissed from service", "termination without notice",
+         "terminated without reason", "removed from service", "retrench", "article 311",
+         "reinstatement", "back wages", "wrongful termination", "service terminated",
+         "employment terminated", "discharged from service"],
+        ["article 311", "termination of service", "dismissed from service",
+         "reinstatement", "back wages"],
+        [],
+    ),
+    (
+        ["promotion denied", "promotion blocked", "seniority dispute", "dpc",
+         "departmental promotion", "service seniority", "superseded in promotion"],
+        ["seniority list", "departmental promotion committee", "promotion"],
+        [],
+    ),
+    (
+        ["pension denied", "pension withheld", "gratuity not paid", "retiral benefits",
+         "retirement benefits"],
+        ["pension", "gratuity", "retiral benefits", "government servant"],
+        [],
+    ),
+
+    # ── Property / Land ───────────────────────────────────────────────────────
+    (
+        ["sarfaesi", "auction under sarfaesi", "bank auction", "npa auction",
+         "secured asset", "secured creditor", "enforcement of security interest"],
+        ["sarfaesi", "securitisation", "secured creditor"],
+        [],
+    ),
+    (
+        ["land acquired", "land acquisition", "compulsory acquisition", "compensation for land",
+         "collector award", "larr act", "right to fair compensation"],
+        ["land acquisition act", "right to fair compensation", "collector"],
+        [],
+    ),
+    (
+        ["eviction", "tenant evicted", "rent control", "landlord eviction",
+         "vacate premises", "eviction notice"],
+        ["rent control act", "eviction of tenant", "landlord and tenant"],
+        [],
+    ),
+
+    # ── Family / Personal Law ─────────────────────────────────────────────────
+    (
+        ["divorce", "matrimonial dispute", "cruelty by spouse", "section 13 hma",
+         "dissolution of marriage", "judicial separation"],
+        ["hindu marriage act", "divorce", "matrimonial"],
+        [],
+    ),
+    (
+        ["maintenance", "alimony", "section 125", "child support", "wife maintenance",
+         "maintenance refused"],
+        ["section 125", "maintenance", "hindu marriage act"],
+        [],
+    ),
+    (
+        ["child custody", "custody of child", "guardianship", "visitation rights"],
+        ["custody", "guardianship and wards act", "best interest of the child"],
+        [],
+    ),
+
+    # ── Finance / Tax ─────────────────────────────────────────────────────────
+    (
+        ["cheque bounce", "cheque dishonour", "section 138", "ni act", "bounced cheque",
+         "dishonoured cheque"],
+        ["section 138", "negotiable instruments act"],
+        [],
+    ),
+    (
+        ["income tax", "it assessment", "reassessment notice", "section 148",
+         "income tax return", "tax demand", "income tax officer"],
+        ["income tax act", "assessing officer", "income tax"],
+        [],
+    ),
+    (
+        ["gst demand", "gst notice", "input tax credit", "igst", "cgst"],
+        ["goods and services tax", "cgst act", "input tax credit"],
+        [],
+    ),
+
+    # ── Consumer / Motor ──────────────────────────────────────────────────────
+    (
+        ["consumer complaint", "deficiency of service", "insurance claim rejected",
+         "product defect", "consumer forum", "ncdrc"],
+        ["consumer protection act", "deficiency in service", "national consumer"],
+        [],
+    ),
+    (
+        ["road accident", "motor accident", "mact", "accident compensation",
+         "hit by vehicle", "accident claim"],
+        ["motor vehicles act", "motor accident claims tribunal", "mact"],
+        [],
+    ),
+
+    # ── Commercial ────────────────────────────────────────────────────────────
+    (
+        ["arbitration award", "arbitral tribunal", "section 34 arbitration",
+         "section 11 arbitration", "set aside award", "enforce award"],
+        ["arbitration and conciliation act", "arbitral award", "section 34"],
+        [],
+    ),
+    (
+        ["insolvency", "ibc", "corporate insolvency", "nclt", "liquidation",
+         "resolution plan", "moratorium"],
+        ["insolvency and bankruptcy code", "corporate insolvency resolution",
+         "national company law tribunal"],
+        [],
+    ),
+]
+
+# Compound AND modifiers: when query contains ALL signals in a set,
+# narrow the primary pre-filter results further with an AND condition.
+# (primary_signal, secondary_signals, and_sqlite_patterns)
+_COMPOUND_NARROWERS: list[tuple[str, list[str], list[str]]] = [
+    # bail + murder → only bail cases that also mention 302/murder
+    ("bail", ["murder", "302", "homicide", "culpable homicide"],
+     ["section 302", " 302 ", "murder", "homicide"]),
+    # bail + ndps → only bail cases mentioning NDPS
+    ("bail", ["ndps", "narcotic", "drug"],
+     ["ndps act", "narcotic drugs", "section 37"]),
+    # bail + pmla/ed → only bail cases mentioning PMLA/money laundering
+    ("bail", ["pmla", "money laundering", "enforcement directorate", " ed "],
+     ["prevention of money laundering", "pmla", "enforcement directorate"]),
+    # bail + uapa/terror → only bail cases mentioning UAPA
+    ("bail", ["uapa", "terror", "unlawful activities"],
+     ["uapa", "unlawful activities", "terrorist"]),
+]
+
+
+def _sqlite_domain_prefilter(query: str) -> Optional[list[str]]:
+    """
+    Returns list of case_ids to restrict Pinecone search to, or None (no filter).
+    Supports compound AND narrowing when query signals multiple domains.
+    """
+    ql = query.lower()
+    matched_patterns: Optional[list[str]] = None
+    matched_primary_signal: Optional[str] = None
+
+    for entry in _DOMAIN_PREFILTERS:
+        signals, patterns = entry[0], entry[1]
+        if any(s in ql for s in signals):
+            matched_patterns = patterns
+            # record which broad signal matched (first word of first signal)
+            matched_primary_signal = signals[0].split()[0]
+            break
+
+    if not matched_patterns:
+        return None
+
+    conn = _get_catalog_db()
+
+    # Check if a compound narrower applies
+    and_patterns: list[str] = []
+    if matched_primary_signal:
+        for primary, secondary_signals, narrower_patterns in _COMPOUND_NARROWERS:
+            if primary in matched_primary_signal and any(s in ql for s in secondary_signals):
+                and_patterns = narrower_patterns
+                break
+
+    # Build SQL: primary OR patterns + optional AND patterns
+    primary_where = " OR ".join(["LOWER(text) LIKE ?" for _ in matched_patterns])
+    params: list[str] = [f"%{p}%" for p in matched_patterns]
+
+    if and_patterns:
+        and_where = " OR ".join(["LOWER(text) LIKE ?" for _ in and_patterns])
+        sql = f"SELECT id FROM cases WHERE ({primary_where}) AND ({and_where})"
+        params += [f"%{p}%" for p in and_patterns]
+        label = f"{matched_patterns[0]} AND {and_patterns[0]}"
+    else:
+        sql = f"SELECT id FROM cases WHERE {primary_where}"
+        label = matched_patterns[0]
+
+    rows = conn.execute(sql, params).fetchall()
+    ids = [r[0] for r in rows]
+    print(f"[*] Domain pre-filter: {len(ids)} cases match '{label}...'")
+    return ids if ids else None
+
+
 def _rows_to_cases(rows) -> list[dict]:
     return [
         {"id": r[0], "title": r[1], "citation": r[2], "year": r[3],
@@ -520,6 +744,12 @@ def search_pro_diverse(
     if filter_year:
         y = int(filter_year)
         filter_meta["year"] = {"$gte": y - 1, "$lte": y + 1}
+
+    # ── Domain pre-filter: restrict Pinecone to SQLite-confirmed domain cases ──
+    domain_ids = _sqlite_domain_prefilter(query)
+    if domain_ids:
+        # Pinecone $in filter — only embed-search within confirmed domain
+        filter_meta["case_id"] = {"$in": domain_ids}
 
     # OPT-4: Outcome-aware soft boost (substring match against stored description)
     outcome_intent = _detect_outcome_intent(query)

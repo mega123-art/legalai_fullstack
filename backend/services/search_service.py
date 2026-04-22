@@ -60,8 +60,13 @@ def run_search(
         historical=historical,
     )
 
+    SCORE_THRESHOLD = 0.55
+
     results = []
     for m in matches:
+        score = round(float(getattr(m, "final_score", 0)), 4)
+        if score < SCORE_THRESHOLD:
+            continue
         meta = m.metadata or {}
         results.append({
             "case_id":        meta.get("case_id", ""),
@@ -73,10 +78,20 @@ def run_search(
             "year":           int(float(meta.get("year", 0))),
             "date":           meta.get("date", ""),
             "outcome":        meta.get("outcome", ""),
-            "relevance_score": round(float(getattr(m, "final_score", 0)), 4),
-            "preview":        (meta.get("text") or "")[:300],
+            "relevance_score": score,
+            "preview":        (meta.get("text") or "")[:600],
             "chunk_type":     meta.get("chunk_type", "judgment"),
         })
+
+    # Deduplicate — same-party cases (referral + final judgment) appear as separate SCR entries
+    seen_parties: set[str] = set()
+    deduped = []
+    for r in results:
+        party_key = r["title"][:35].lower().strip()
+        if party_key not in seen_parties:
+            seen_parties.add(party_key)
+            deduped.append(r)
+    results = deduped[:5]
     return results, expansion
 
 

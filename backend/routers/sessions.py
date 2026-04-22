@@ -43,7 +43,12 @@ async def delete_session(session_id: str, req: DeleteSessionRequest):
 # ── Messages ──────────────────────────────────────────────────
 
 @router.get("/api/sessions/{session_id}/messages")
-async def get_messages(session_id: str):
+async def get_messages(session_id: str, user_id: str):
+    # Verify the session belongs to this user before returning messages
+    sessions = await db_service.get_sessions_for_user(user_id)
+    owned_ids = {s["id"] for s in sessions}
+    if session_id not in owned_ids:
+        raise HTTPException(status_code=403, detail="Access denied")
     messages = await db_service.get_messages_for_session(session_id)
     return {"messages": messages}
 

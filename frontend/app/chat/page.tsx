@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Sidebar from "@/components/Sidebar";
 import ChatInput from "@/components/ChatInput";
@@ -32,7 +32,13 @@ export default function ChatPage() {
     }
   }
 
-  if (!isLoaded) {
+  useEffect(() => {
+    if (isLoaded && !user.id) {
+      router.replace("/sign-in");
+    }
+  }, [isLoaded, user.id, router]);
+
+  if (!isLoaded || !user.id) {
     return (
       <div className="flex items-center justify-center h-screen text-fg-subtle text-sm">
         Loading…

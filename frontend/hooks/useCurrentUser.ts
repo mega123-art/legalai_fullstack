@@ -30,9 +30,6 @@ export function useCurrentUser(): { user: AppUser; isLoaded: boolean } {
     };
   }
 
-  // Clerk keys not set — use demo fallback so the app still works locally
-  return {
-    user: { id: "demo-user", name: "Demo User", email: "demo@legalai.dev" },
-    isLoaded: true,
-  };
+  // No authenticated user — treat as not loaded to force auth redirect
+  return { user: { id: "", name: "", email: "" }, isLoaded: false };
 }
