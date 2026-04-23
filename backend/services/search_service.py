@@ -58,6 +58,8 @@ def run_search(
     )
 
     SCORE_THRESHOLD = 0.55
+    MAX_RESULTS = 8
+    CLIFF_DROP = 0.25  # drop results where score falls >25% below the top result
 
     results = []
     for m in matches:
@@ -88,7 +90,13 @@ def run_search(
         if party_key not in seen_parties:
             seen_parties.add(party_key)
             deduped.append(r)
-    results = deduped[:5]
+    results = deduped[:MAX_RESULTS]
+
+    # Score cliff — drop trailing results that fall significantly below the top score
+    if len(results) > 1:
+        top_score = results[0]["relevance_score"]
+        cliff_floor = top_score - CLIFF_DROP
+        results = [r for r in results if r["relevance_score"] >= cliff_floor]
 
     # Outcome post-filter — only apply if ≥2 results survive (avoid empty result set)
     if outcome_filter:

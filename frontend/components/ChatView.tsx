@@ -122,6 +122,13 @@ export default function ChatView({ initialSessionId }: ChatViewProps) {
           userName={user.name}
           isOpen={sidebarOpen}
           onClose={() => setSidebarOpen(false)}
+          onNewSearch={() => {
+            setSessionId(null);
+            setMessages([]);
+            setActiveCase(null);
+            setSidebarOpen(false);
+            window.history.pushState({}, "", "/chat");
+          }}
         />
 
         {/* Chat area */}

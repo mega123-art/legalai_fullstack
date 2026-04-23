@@ -35,9 +35,10 @@ interface SidebarProps {
   userName?: string;
   isOpen: boolean;
   onClose: () => void;
+  onNewSearch: () => void;
 }
 
-export default function Sidebar({ userId, userName = "User", isOpen, onClose }: SidebarProps) {
+export default function Sidebar({ userId, userName = "User", isOpen, onClose, onNewSearch }: SidebarProps) {
   const router = useRouter();
   const params = useParams();
   const activeSessionId = params?.sessionId as string | undefined;
@@ -51,11 +52,6 @@ export default function Sidebar({ userId, userName = "User", isOpen, onClose }: 
       .then((r) => setSessions(r.sessions))
       .catch(console.error);
   }, [userId]);
-
-  function handleNewSearch() {
-    onClose();
-    router.push("/chat");
-  }
 
   function navigate(id: string) {
     onClose();
@@ -123,7 +119,7 @@ export default function Sidebar({ userId, userName = "User", isOpen, onClose }: 
         {/* New Search */}
         <div className="px-3 py-2">
           <button
-            onClick={handleNewSearch}
+            onClick={onNewSearch}
             className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-fg-default/80 hover:text-fg-default hover:bg-hover-subtle transition-colors duration-150 cursor-pointer"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
