@@ -1,19 +1,21 @@
 """
-Groq API calls for summaries.
-Uses llama-3.1-8b-instant (fast, cheap for short 150-word output).
-Configurable via GROQ_SUMMARY_MODEL env var.
+OpenRouter API calls for summaries.
+Model: configurable via OPENROUTER_SUMMARY_MODEL env var.
 """
 from __future__ import annotations
 
 import os
 from typing import AsyncGenerator
 
-from groq import AsyncGroq
+from openai import AsyncOpenAI
 
-from config import GROQ_API_KEY
+from config import OPENROUTER_API_KEY
 
-_SUMMARY_MODEL = os.getenv("GROQ_SUMMARY_MODEL", "llama-3.1-8b-instant")
-_client = AsyncGroq(api_key=GROQ_API_KEY)
+_SUMMARY_MODEL = os.getenv("OPENROUTER_SUMMARY_MODEL", "google/gemini-2.0-flash-001")
+_client = AsyncOpenAI(
+    api_key=OPENROUTER_API_KEY,
+    base_url="https://openrouter.ai/api/v1",
+)
 
 _SUMMARY_PROMPT = (
     "You are a senior Indian lawyer briefing a colleague. "

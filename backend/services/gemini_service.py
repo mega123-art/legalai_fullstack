@@ -1,6 +1,6 @@
 """
-Groq API calls for structured case breakdown.
-Model: llama-3.3-70b-versatile (configurable via GROQ_MODEL env var).
+OpenRouter API calls for structured case breakdown.
+Model: configurable via OPENROUTER_BREAKDOWN_MODEL env var.
 """
 from __future__ import annotations
 
@@ -9,13 +9,16 @@ import os
 import re
 from typing import Optional, AsyncGenerator
 
-from groq import AsyncGroq
+from openai import AsyncOpenAI
 
-from config import GROQ_API_KEY
+from config import OPENROUTER_API_KEY
 
-GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+BREAKDOWN_MODEL = os.getenv("OPENROUTER_BREAKDOWN_MODEL", "google/gemini-2.0-flash-001")
 
-_client = AsyncGroq(api_key=GROQ_API_KEY)
+_client = AsyncOpenAI(
+    api_key=OPENROUTER_API_KEY,
+    base_url="https://openrouter.ai/api/v1",
+)
 
 _BREAKDOWN_PROMPT = """You are an expert Indian Supreme Court legal analyst.
 Analyze the following judgment and return ONLY a valid JSON object — no markdown fences,
@@ -54,23 +57,22 @@ def _extract_json(raw: str) -> Optional[dict]:
 
 
 async def get_breakdown(full_text: str) -> dict:
-    """Call Groq for structured case breakdown. Returns parsed dict."""
+    """Call OpenRouter for structured case breakdown. Returns parsed dict."""
     prompt = _BREAKDOWN_PROMPT.format(full_text=full_text[:20000])
     try:
         resp = await _client.chat.completions.create(
-            model=GROQ_MODEL,
+            model=BREAKDOWN_MODEL,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.1,
             max_tokens=4096,
-            response_format={"type": "json_object"},
         )
         raw_text = resp.choices[0].message.content or ""
         data = _extract_json(raw_text)
         if data:
             return _normalise(data)
-        raise ValueError(f"Unparseable Groq response: {raw_text[:200]}")
+        raise ValueError(f"Unparseable OpenRouter response: {raw_text[:200]}")
     except Exception as e:
-        print(f"[breakdown_service] Groq failed ({e})")
+        print(f"[breakdown_service] OpenRouter failed ({e})")
         return {
             "facts": "Error generating breakdown.",
             "issues": [],
@@ -78,21 +80,20 @@ async def get_breakdown(full_text: str) -> dict:
             "arguments_respondent": [],
             "judgment": str(e),
             "ratio_decidendi": "",
-            "conclusion": "Please check GROQ_API_KEY and model availability.",
+            "conclusion": "Please check OPENROUTER_API_KEY and model availability.",
             "acts_cited": [],
             "cases_cited": [],
         }
 
 
 async def stream_breakdown(full_text: str) -> AsyncGenerator[str, None]:
-    """Stream raw text tokens from Groq for the streaming SSE route."""
+    """Stream raw text tokens from OpenRouter for the streaming SSE route."""
     prompt = _BREAKDOWN_PROMPT.format(full_text=full_text[:20000])
     stream = await _client.chat.completions.create(
-        model=GROQ_MODEL,
+        model=BREAKDOWN_MODEL,
         messages=[{"role": "user", "content": prompt}],
         temperature=0.1,
         max_tokens=4096,
-        response_format={"type": "json_object"},
         stream=True,
     )
     async for chunk in stream:
