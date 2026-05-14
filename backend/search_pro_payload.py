@@ -29,9 +29,9 @@ PINECONE_INDEX = "legal-cases"
 MODEL_NAME = "law-ai/InLegalBERT"
 RERANKER_NAME = "BAAI/bge-reranker-v2-m3"
 
-TOP_K_INITIAL = 80
-TOP_K_FINAL = 10
-TEMPORAL_WEIGHT = 0.005
+TOP_K_INITIAL = 100
+TOP_K_FINAL = 12
+TEMPORAL_WEIGHT = 0.002
 BASELINE_YEAR = 2011
 OUTCOME_BOOST = 0.40   # Soft score bonus when outcome substring matches detected intent
 DOMAIN_PENALTY = 0.35  # Subtracted when query names a statute the candidate doesn't mention
@@ -243,7 +243,11 @@ def _build_sqlite_catalog() -> None:
             except Exception:
                 continue
             chunks = case.get("chunks", []) or []
-            first_text = chunks[0].get("text", "") if chunks and isinstance(chunks[0], dict) else ""
+            headnotes = case.get("headnotes", "") or ""
+            chunk_texts = " ".join(
+                c.get("text", "") for c in chunks[:3] if isinstance(c, dict)
+            )
+            rich_text = f"{headnotes} {chunk_texts}".strip()[:2000]
             conn.execute(
                 "INSERT OR REPLACE INTO cases VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (
@@ -253,7 +257,7 @@ def _build_sqlite_catalog() -> None:
                     int(case.get("year", 0)),
                     case.get("outcome", ""),
                     case.get("judges", ""),
-                    first_text[:1000],
+                    rich_text,
                 ),
             )
     conn.commit()
@@ -270,228 +274,46 @@ def _get_catalog_db() -> sqlite3.Connection:
     return _catalog_db_conn
 
 
-# ─── Domain pre-filter patterns ──────────────────────────────────────────────
-# Tuple: (query_signals, primary_patterns, and_patterns_optional)
-# primary_patterns  — SQLite OR: text must match at least one
-# and_patterns      — SQLite AND on top: text must also match at least one (compound)
-# Order matters — first match wins. Put specific/compound before general.
-_DOMAIN_PREFILTERS: list[tuple[list[str], list[str], list[str]]] = [
-    # (query_signals, primary_patterns, and_patterns)
-    # Order matters — first match wins. Put specific before general.
+# ─── LLM-driven domain pre-filter ────────────────────────────────────────────
+# filter_terms come from the queryfier LLM response — no manual rules needed.
 
-    # ── Criminal — compound bail filters (specific offence + bail) ─────────────
-    (
-        ["anticipatory bail", "section 438", "s.438", "s. 438"],
-        ["section 438", "anticipatory bail"],
-        [],
-    ),
-    # bail + murder: narrow to cases that mention both bail and 302/murder
-    (
-        ["bail", "section 439", "s.439", "bail rejected", "bail denied", "bail refused"],
-        ["section 439", "bail application", "bail in"],
-        # AND: only when query also mentions murder
-        # Handled dynamically in _sqlite_domain_prefilter
-        [],
-    ),
-    (
-        ["ndps", "narcotic", "drug trafficking", "drug offence"],
-        ["ndps act", "narcotic drugs", "section 37 of the ndps"],
-    ),
-    (
-        ["pocso", "sexual offence against child", "child abuse"],
-        ["pocso act", "protection of children from sexual offences"],
-        [],
-    ),
-    (
-        ["habeas corpus", "illegal detention", "preventive detention", "detained without trial",
-         "unlawful detention"],
-        ["habeas corpus", "preventive detention"],
-        [],
-    ),
-    (
-        ["contempt of court", "disobeyed court order", "violation of court order",
-         "wilful disobedience"],
-        ["contempt of court", "contempt of courts act"],
-        [],
-    ),
-
-    # ── Service / Employment ───────────────────────────────────────────────────
-    (
-        ["fired", "sacked", "dismissed from service", "termination without notice",
-         "terminated without reason", "removed from service", "retrench", "article 311",
-         "reinstatement", "back wages", "wrongful termination", "service terminated",
-         "employment terminated", "discharged from service"],
-        ["article 311", "termination of service", "dismissed from service",
-         "reinstatement", "back wages"],
-        [],
-    ),
-    (
-        ["promotion denied", "promotion blocked", "seniority dispute", "dpc",
-         "departmental promotion", "service seniority", "superseded in promotion"],
-        ["seniority list", "departmental promotion committee", "promotion"],
-        [],
-    ),
-    (
-        ["pension denied", "pension withheld", "gratuity not paid", "retiral benefits",
-         "retirement benefits"],
-        ["pension", "gratuity", "retiral benefits", "government servant"],
-        [],
-    ),
-
-    # ── Property / Land ───────────────────────────────────────────────────────
-    (
-        ["sarfaesi", "auction under sarfaesi", "bank auction", "npa auction",
-         "secured asset", "secured creditor", "enforcement of security interest"],
-        ["sarfaesi", "securitisation", "secured creditor"],
-        [],
-    ),
-    (
-        ["land acquired", "land acquisition", "compulsory acquisition", "compensation for land",
-         "collector award", "larr act", "right to fair compensation"],
-        ["land acquisition act", "right to fair compensation", "collector"],
-        [],
-    ),
-    (
-        ["eviction", "tenant evicted", "rent control", "landlord eviction",
-         "vacate premises", "eviction notice"],
-        ["rent control act", "eviction of tenant", "landlord and tenant"],
-        [],
-    ),
-
-    # ── Family / Personal Law ─────────────────────────────────────────────────
-    (
-        ["divorce", "matrimonial dispute", "cruelty by spouse", "section 13 hma",
-         "dissolution of marriage", "judicial separation"],
-        ["hindu marriage act", "divorce", "matrimonial"],
-        [],
-    ),
-    (
-        ["maintenance", "alimony", "section 125", "child support", "wife maintenance",
-         "maintenance refused"],
-        ["section 125", "maintenance", "hindu marriage act"],
-        [],
-    ),
-    (
-        ["child custody", "custody of child", "guardianship", "visitation rights"],
-        ["custody", "guardianship and wards act", "best interest of the child"],
-        [],
-    ),
-
-    # ── Finance / Tax ─────────────────────────────────────────────────────────
-    (
-        ["cheque bounce", "cheque dishonour", "section 138", "ni act", "bounced cheque",
-         "dishonoured cheque"],
-        ["section 138", "negotiable instruments act"],
-        [],
-    ),
-    (
-        ["income tax", "it assessment", "reassessment notice", "section 148",
-         "income tax return", "tax demand", "income tax officer"],
-        ["income tax act", "assessing officer", "income tax"],
-        [],
-    ),
-    (
-        ["gst demand", "gst notice", "input tax credit", "igst", "cgst"],
-        ["goods and services tax", "cgst act", "input tax credit"],
-        [],
-    ),
-
-    # ── Consumer / Motor ──────────────────────────────────────────────────────
-    (
-        ["consumer complaint", "deficiency of service", "insurance claim rejected",
-         "product defect", "consumer forum", "ncdrc"],
-        ["consumer protection act", "deficiency in service", "national consumer"],
-        [],
-    ),
-    (
-        ["road accident", "motor accident", "mact", "accident compensation",
-         "hit by vehicle", "accident claim"],
-        ["motor vehicles act", "motor accident claims tribunal", "mact"],
-        [],
-    ),
-
-    # ── Commercial ────────────────────────────────────────────────────────────
-    (
-        ["arbitration award", "arbitral tribunal", "section 34 arbitration",
-         "section 11 arbitration", "set aside award", "enforce award"],
-        ["arbitration and conciliation act", "arbitral award", "section 34"],
-        [],
-    ),
-    (
-        ["insolvency", "ibc", "corporate insolvency", "nclt", "liquidation",
-         "resolution plan", "moratorium"],
-        ["insolvency and bankruptcy code", "corporate insolvency resolution",
-         "national company law tribunal"],
-        [],
-    ),
-]
-
-# Compound AND modifiers: when query contains ALL signals in a set,
-# narrow the primary pre-filter results further with an AND condition.
-# (primary_signal, secondary_signals, and_sqlite_patterns)
-_COMPOUND_NARROWERS: list[tuple[str, list[str], list[str]]] = [
-    # bail + murder → only bail cases that also mention 302/murder
-    ("bail", ["murder", "302", "homicide", "culpable homicide"],
-     ["section 302", " 302 ", "murder", "homicide"]),
-    # bail + ndps → only bail cases mentioning NDPS
-    ("bail", ["ndps", "narcotic", "drug"],
-     ["ndps act", "narcotic drugs", "section 37"]),
-    # bail + pmla/ed → only bail cases mentioning PMLA/money laundering
-    ("bail", ["pmla", "money laundering", "enforcement directorate", " ed "],
-     ["prevention of money laundering", "pmla", "enforcement directorate"]),
-    # bail + uapa/terror → only bail cases mentioning UAPA
-    ("bail", ["uapa", "terror", "unlawful activities"],
-     ["uapa", "unlawful activities", "terrorist"]),
-]
-
-
-def _sqlite_domain_prefilter(query: str) -> Optional[list[str]]:
+def _llm_domain_prefilter(filter_terms: list[str]) -> Optional[list[str]]:
     """
-    Returns list of case_ids to restrict Pinecone search to, or None (no filter).
-    Supports compound AND narrowing when query signals multiple domains.
+    Uses LLM-generated filter_terms to restrict Pinecone search to domain-relevant cases.
+    Drops terms that match too many cases (not discriminating enough).
     """
-    ql = query.lower()
-    matched_patterns: Optional[list[str]] = None
-    matched_primary_signal: Optional[str] = None
-
-    for entry in _DOMAIN_PREFILTERS:
-        signals, patterns = entry[0], entry[1]
-        if any(s in ql for s in signals):
-            matched_patterns = patterns
-            # record which broad signal matched (first word of first signal)
-            matched_primary_signal = signals[0].split()[0]
-            break
-
-    if not matched_patterns:
+    terms = [t.lower().strip() for t in filter_terms if len(t.strip()) >= 5]
+    if not terms:
         return None
 
     conn = _get_catalog_db()
 
-    # Check if a compound narrower applies
-    and_patterns: list[str] = []
-    if matched_primary_signal:
-        for primary, secondary_signals, narrower_patterns in _COMPOUND_NARROWERS:
-            if primary in matched_primary_signal and any(s in ql for s in secondary_signals):
-                and_patterns = narrower_patterns
-                break
+    # Drop terms that match >400 cases — too broad to be useful as domain filters
+    discriminating = []
+    for t in terms:
+        count = conn.execute(
+            "SELECT COUNT(*) FROM cases WHERE LOWER(text) LIKE ?", (f"%{t}%",)
+        ).fetchone()[0]
+        if count <= 400:
+            discriminating.append(t)
+        else:
+            print(f"[*] Dropped broad filter term '{t}' ({count} matches)")
 
-    # Build SQL: primary OR patterns + optional AND patterns
-    primary_where = " OR ".join(["LOWER(text) LIKE ?" for _ in matched_patterns])
-    params: list[str] = [f"%{p}%" for p in matched_patterns]
+    if not discriminating:
+        print(f"[*] All filter terms too broad — no domain restriction applied")
+        return None
 
-    if and_patterns:
-        and_where = " OR ".join(["LOWER(text) LIKE ?" for _ in and_patterns])
-        sql = f"SELECT id FROM cases WHERE ({primary_where}) AND ({and_where})"
-        params += [f"%{p}%" for p in and_patterns]
-        label = f"{matched_patterns[0]} AND {and_patterns[0]}"
-    else:
-        sql = f"SELECT id FROM cases WHERE {primary_where}"
-        label = matched_patterns[0]
-
-    rows = conn.execute(sql, params).fetchall()
+    where = " OR ".join(["LOWER(text) LIKE ?" for _ in discriminating])
+    params = [f"%{t}%" for t in discriminating]
+    rows = conn.execute(f"SELECT id FROM cases WHERE {where}", params).fetchall()
     ids = [r[0] for r in rows]
-    print(f"[*] Domain pre-filter: {len(ids)} cases match '{label}...'")
-    return ids if ids else None
+    print(f"[*] LLM domain pre-filter ({len(ids)} cases) terms: {discriminating[:3]}...")
+    # Too few matches = catalog text too shallow to find this doctrine — skip filter,
+    # let semantic search + reranker handle it unrestricted
+    if len(ids) < 1:
+        print(f"[*] No catalog matches — skipping domain restriction")
+        return None
+    return ids
 
 
 def _rows_to_cases(rows) -> list[dict]:
@@ -627,10 +449,13 @@ def _select_best_chunk_per_case(matches: list, top_k: int) -> list:
     return best_per_case[:top_k]
 
 
-def _build_query_variants(query: str, use_queryfy: bool = True) -> list[str]:
+def _build_query_variants(query: str, use_queryfy: bool = True) -> tuple[list[str], list[str]]:
+    """Returns (query_variants, filter_terms). filter_terms power the LLM domain pre-filter."""
     variants = [query.strip()]
+    filter_terms: list[str] = []
+
     if not use_queryfy or _looks_like_named_case_query(query):
-        return [v for v in variants if v]
+        return [v for v in variants if v], filter_terms
 
     try:
         from legal_queryfier import queryfy
@@ -644,6 +469,9 @@ def _build_query_variants(query: str, use_queryfy: bool = True) -> list[str]:
             expanded = " ".join(parts).strip()
             if expanded and expanded.lower() != query.strip().lower():
                 variants.append(expanded[:2000])
+            raw_terms = payload.get("filter_terms", [])
+            if isinstance(raw_terms, list):
+                filter_terms = [str(t).lower().strip() for t in raw_terms if t]
     except Exception:
         pass
 
@@ -654,7 +482,7 @@ def _build_query_variants(query: str, use_queryfy: bool = True) -> list[str]:
         if v and key not in seen:
             seen.add(key)
             out.append(v)
-    return out
+    return out, filter_terms
 
 
 def setup(local_only: bool = True):
@@ -755,18 +583,19 @@ def search_pro_diverse(
         y = int(filter_year)
         filter_meta["year"] = {"$gte": y - 1, "$lte": y + 1}
 
-    # ── Domain pre-filter: restrict Pinecone to SQLite-confirmed domain cases ──
-    domain_ids = _sqlite_domain_prefilter(query)
-    if domain_ids:
-        # Pinecone $in filter — only embed-search within confirmed domain
-        filter_meta["case_id"] = {"$in": domain_ids}
-
-    # OPT-4: Outcome-aware soft boost (substring match against stored description)
+    # OPT-4: Outcome-aware soft boost
     outcome_intent = _detect_outcome_intent(query)
     if outcome_intent:
         print(f"[*] Outcome Boost: '{outcome_intent}' detected — will boost matching results")
 
-    query_variants = _build_query_variants(query, use_queryfy=use_queryfy)
+    # Build query variants + extract LLM filter terms in one queryfier call
+    query_variants, filter_terms = _build_query_variants(query, use_queryfy=use_queryfy)
+
+    # ── LLM-driven domain pre-filter ─────────────────────────────────────────
+    domain_ids = _llm_domain_prefilter(filter_terms) if filter_terms else None
+    if domain_ids:
+        filter_meta["case_id"] = {"$in": domain_ids}
+
     per_variant_k = max(30, TOP_K_INITIAL // max(1, len(query_variants)))
     merged_by_id = {}
 
@@ -811,22 +640,24 @@ def search_pro_diverse(
     if not initial_results and not citation_pinned:
         return []
 
-    # Use the expansion (the high-quality legal headnote) for the final reranking stage
     expansion = query_variants[1] if len(query_variants) > 1 else query
-    
+
+    # Always rerank against original query — expansion is for vector retrieval only.
+    # Using expansion for reranking caused constitutional-term bleed across domains.
+    rerank_query = query
+
     pairs = []
     for m in initial_results:
-        # Build a high-information context string for the reranker
         context = (
             f"TITLE: {m.metadata.get('title', 'Unknown')}\n"
             f"CITATION: {m.metadata.get('citation', 'Unknown')}\n"
             f"TEXT: {m.metadata.get('text', '')}"
         )
-        pairs.append([expansion, context])
+        pairs.append([rerank_query, context])
 
+    required_aliases = _detect_statute_aliases(query)
     if pairs:
         rerank_scores = reranker.predict(pairs)
-        required_aliases = _detect_statute_aliases(query)
         if required_aliases:
             print(f"[*] Domain gate: query references statute — penalising non-matches.")
         for i, m in enumerate(initial_results):
@@ -848,6 +679,43 @@ def search_pro_diverse(
             )
             domain_pen = _domain_penalty(required_aliases, meta)
             m.final_score = score + age_bonus + name_bonus + outcome_bonus + domain_pen
+
+    # Fallback: domain restriction can be too narrow for sparse legal domains.
+    # If all domain-restricted results score < 0.3, retry without domain restriction.
+    if domain_ids and initial_results and not citation_pinned:
+        max_score = max(getattr(m, "final_score", 0) for m in initial_results)
+        if max_score < 0.3:
+            print(f"[*] Domain-restricted results weak (max={max_score:.4f}) — retrying unrestricted")
+            filter_meta_fallback = {k: v for k, v in filter_meta.items() if k != "case_id"}
+            merged_fallback: dict = {}
+            for i, qv in enumerate(query_variants):
+                fb_results = index.query(
+                    vector=all_vectors[i],
+                    top_k=per_variant_k,
+                    include_metadata=True,
+                    filter=filter_meta_fallback if filter_meta_fallback else None,
+                    namespace=namespace,
+                ).matches
+                for m in fb_results:
+                    prev = merged_fallback.get(m.id)
+                    if prev is None or getattr(m, "score", float("-inf")) > getattr(prev, "score", float("-inf")):
+                        merged_fallback[m.id] = m
+            fb_list = list(merged_fallback.values())
+            fb_pairs = [
+                [rerank_query, f"TITLE: {m.metadata.get('title','')}\nCITATION: {m.metadata.get('citation','')}\nTEXT: {m.metadata.get('text','')}"]
+                for m in fb_list
+            ]
+            if fb_pairs:
+                fb_scores = reranker.predict(fb_pairs)
+                for i, m in enumerate(fb_list):
+                    score = float(fb_scores[i])
+                    meta = m.metadata or {}
+                    year = int(float(meta.get("year", BASELINE_YEAR)))
+                    age_bonus = (year - BASELINE_YEAR) * TEMPORAL_WEIGHT
+                    if historical:
+                        age_bonus = (2026 - year) * TEMPORAL_WEIGHT
+                    m.final_score = score + age_bonus + _case_name_bonus(query, meta.get("title",""), meta.get("citation","")) + (OUTCOME_BOOST if outcome_intent and outcome_intent in (meta.get("outcome") or "").lower() else 0.0) + _domain_penalty(required_aliases, meta)
+                initial_results = fb_list
 
     # Local named-case pin (title fuzzy match)
     local_case = _resolve_named_case_from_local(query, int(filter_year) if filter_year else None)

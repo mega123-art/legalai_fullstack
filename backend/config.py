@@ -26,7 +26,7 @@ LEGAL_DATA_PATH = Path(
 
 # Make existing search scripts importable
 if str(LEGAL_DATA_PATH) not in sys.path:
-    sys.path.insert(0, str(LEGAL_DATA_PATH))
+    sys.path.append(str(LEGAL_DATA_PATH))
 
 # ── Search tuning ─────────────────────────────────────────────
 TOP_K_FINAL = int(os.getenv("TOP_K_FINAL", "5"))

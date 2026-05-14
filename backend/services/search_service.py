@@ -58,8 +58,8 @@ def run_search(
     )
 
     SCORE_THRESHOLD = 0.55
-    MAX_RESULTS = 8
-    CLIFF_DROP = 0.25  # drop results where score falls >25% below the top result
+    MAX_RESULTS = 10
+    CLIFF_DROP = 0.30  # drop results where score falls >30% below the top result
 
     results = []
     for m in matches:
