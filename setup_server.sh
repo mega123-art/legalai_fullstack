@@ -90,12 +90,12 @@ if [ -f "$ENV_FILE" ]; then
     echo "  .env already exists — skipping (edit manually if needed)"
 else
     cat > "$ENV_FILE" <<EOF
-# Qdrant Cloud
-QDRANT_URL=https://f27678ef-4703-42e0-92cd-8f507b932389.us-west-2-0.aws.cloud.qdrant.io:6333
-QDRANT_API_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIiwic3ViamVjdCI6ImFwaS1rZXk6MTk4ZGQ1NGQtYzc3ZC00NzU1LThkNWYtZGMwODg3ZTY1OTY0In0.88PXU_tdnWeWB1Fj5Ba_C5OOKE5mEQf2xxhNrsTlamg
+# Qdrant Cloud — get from Parth
+QDRANT_URL=https://YOUR_QDRANT_CLUSTER_URL:6333
+QDRANT_API_KEY=YOUR_QDRANT_API_KEY
 
-# OpenRouter (LLM)
-OPENROUTER_API_KEY=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
+# OpenRouter — get from Parth
+OPENROUTER_API_KEY=YOUR_OPENROUTER_API_KEY
 OPENROUTER_BREAKDOWN_MODEL=google/gemini-2.5-pro
 OPENROUTER_SUMMARY_MODEL=google/gemini-2.5-pro
 OPENROUTER_EXPANSION_MODEL=google/gemini-2.0-flash-001
