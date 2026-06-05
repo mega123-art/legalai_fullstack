@@ -5,9 +5,20 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
 
+from config import PDF_BASE_PATH
 from services import search_service
 
 router = APIRouter()
+
+
+def _resolve_pdf_path(stored_path: str, year: int) -> Path:
+    """
+    Resolve PDF path portably. stored_path may be an absolute Mac path like
+    /Users/parthagrawal99/legal-data/pdfs/2013/foo.pdf — strip to filename
+    and look it up under PDF_BASE_PATH/{year}/.
+    """
+    filename = Path(stored_path).name
+    return PDF_BASE_PATH / str(year) / filename
 
 
 @router.get("/api/pdf/{year}/{case_id}")
@@ -24,7 +35,7 @@ async def download_pdf(
     if not pdf_path_str:
         raise HTTPException(status_code=404, detail="No PDF available for this case")
 
-    pdf_path = Path(pdf_path_str)
+    pdf_path = _resolve_pdf_path(pdf_path_str, year)
     if not pdf_path.exists():
         raise HTTPException(status_code=404, detail=f"PDF missing on disk: {pdf_path.name}")
 

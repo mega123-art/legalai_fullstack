@@ -6,7 +6,6 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ── API keys ──────────────────────────────────────────────────
-PINECONE_API_KEY = os.getenv("PINECONE_API_KEY", "")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 
 # ── Services ──────────────────────────────────────────────────
@@ -22,6 +21,9 @@ CATALOG_DB_PATH = Path(
 )
 LEGAL_DATA_PATH = Path(
     os.getenv("LEGAL_DATA_PATH", "/Users/parthagrawal99/legal-data")
+)
+PDF_BASE_PATH = Path(
+    os.getenv("PDF_BASE_PATH", str(LEGAL_DATA_PATH / "pdfs"))
 )
 
 # Make existing search scripts importable
