@@ -1,5 +1,5 @@
 """
-Wraps the existing InLegalBERT + Pinecone + reranking pipeline.
+Wraps the BGE-M3 + Qdrant hybrid + reranking pipeline.
 Models are loaded once at app startup via init_search().
 """
 from __future__ import annotations
@@ -11,24 +11,21 @@ from typing import Optional
 from config import PROCESSED_DATA_PATH, TOP_K_FINAL
 
 # ── Lazy globals (populated by init_search) ───────────────────
-_tokenizer = None
-_bi_model = None
-_device = None
-_index = None
+_bge_model = None
+_client = None
 _reranker = None
 _initialized = False
 
 
 def init_search(local_only: bool = True) -> None:
-    """Load models and Pinecone index. Call once at startup."""
-    global _tokenizer, _bi_model, _device, _index, _reranker, _initialized
+    """Load BGE-M3 and connect Qdrant. Call once at startup."""
+    global _bge_model, _client, _reranker, _initialized
     if _initialized:
         return
-    # Import here so the path manipulation in config.py is already done
     import search_pro_payload as base
-    _tokenizer, _bi_model, _device, _index, _reranker = base.setup(local_only=local_only)
+    _bge_model, _client, _reranker = base.setup(local_only=local_only)
     _initialized = True
-    print("[search_service] Models loaded.")
+    print("[search_service] BGE-M3 + Qdrant ready.")
 
 
 def run_search(
@@ -46,10 +43,8 @@ def run_search(
 
     matches, expansion = base.search_pro_diverse(
         query=query,
-        tokenizer=_tokenizer,
-        bi_model=_bi_model,
-        device=_device,
-        index=_index,
+        bge_model=_bge_model,
+        client=_client,
         reranker=_reranker,
         filter_year=filter_year,
         year_from=year_from,

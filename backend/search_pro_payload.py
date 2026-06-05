@@ -11,23 +11,27 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Optional
 
-import torch
-from transformers import AutoTokenizer, AutoModel
 from sentence_transformers import CrossEncoder
-from pinecone import Pinecone
+from FlagEmbedding import BGEM3FlagModel
+from qdrant_client import QdrantClient
+from qdrant_client.models import (
+    Filter, FieldCondition, Range, MatchAny,
+    Prefetch, FusionQuery, Fusion, SparseVector,
+    NamedVector, NamedSparseVector,
+)
 from dotenv import load_dotenv
 
-# Load API key from .env file
 load_dotenv()
 
 # ─────────────────────────────────────────────────────────────
 # CONFIG
 # ─────────────────────────────────────────────────────────────
 
-PINECONE_API_KEY = os.getenv("api")
-PINECONE_INDEX = "legal-cases"
-MODEL_NAME = "law-ai/InLegalBERT"
-RERANKER_NAME = "BAAI/bge-reranker-v2-m3"
+QDRANT_URL      = os.getenv("QDRANT_URL", "http://localhost:6333")
+QDRANT_API_KEY  = os.getenv("QDRANT_API_KEY", "")
+COLLECTION_NAME = "legal-cases"
+BGE_MODEL_NAME  = "BAAI/bge-m3"
+RERANKER_NAME   = "BAAI/bge-reranker-v2-m3"
 
 TOP_K_INITIAL = 100
 TOP_K_FINAL = 12
@@ -486,51 +490,54 @@ def _build_query_variants(query: str, use_queryfy: bool = True) -> tuple[list[st
 
 
 def setup(local_only: bool = True):
-    if not PINECONE_API_KEY:
-        raise ValueError("Pinecone API key not found in .env file (variable name: 'api')")
-
+    import torch
     if local_only:
-        # Force Transformers/HF to use only local cache and fail fast if missing.
         os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
         os.environ.setdefault("HF_HUB_OFFLINE", "1")
 
     device = torch.device("mps") if torch.backends.mps.is_available() else torch.device("cpu")
 
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, local_files_only=local_only)
-    bi_model = AutoModel.from_pretrained(MODEL_NAME, local_files_only=local_only).to(device)
-    bi_model.eval()
+    print(f"[setup] Loading BGE-M3...")
+    bge_model = BGEM3FlagModel(BGE_MODEL_NAME, use_fp16=True)
 
-    reranker = CrossEncoder(
-        RERANKER_NAME,
-        device=device,
-        local_files_only=local_only,
+    reranker = CrossEncoder(RERANKER_NAME, device=device, local_files_only=local_only)
+
+    client = QdrantClient(
+        url=QDRANT_URL,
+        api_key=QDRANT_API_KEY or None,
+        timeout=60,
+        check_compatibility=False,
     )
+    print(f"[setup] Qdrant connected: {QDRANT_URL}")
 
-    pc = Pinecone(api_key=PINECONE_API_KEY)
-    index = pc.Index(PINECONE_INDEX)
-
-    return tokenizer, bi_model, device, index, reranker
+    return bge_model, client, reranker
 
 
-def embed_query(text: str, tokenizer, model, device) -> list[float]:
-    encoded = tokenizer(text, padding=True, truncation=True, max_length=512, return_tensors="pt")
-    encoded = {k: v.to(device) for k, v in encoded.items()}
-    with torch.no_grad():
-        outputs = model(**encoded)
-    mask = encoded["attention_mask"]
-    token_embeds = outputs.last_hidden_state
-    mask_exp = mask.unsqueeze(-1).expand(token_embeds.size()).float()
-    sum_embeds = torch.sum(token_embeds * mask_exp, dim=1)
-    sum_mask = torch.clamp(mask_exp.sum(dim=1), min=1e-9)
-    return (sum_embeds / sum_mask).cpu().numpy().tolist()[0]
+def _build_qdrant_filter(filter_meta: dict):
+    if not filter_meta:
+        return None
+    must = []
+    if "year" in filter_meta:
+        yr = filter_meta["year"]
+        must.append(FieldCondition(key="year", range=Range(
+            gte=yr.get("$gte"), lte=yr.get("$lte")
+        )))
+    if "case_id" in filter_meta:
+        ids = filter_meta["case_id"].get("$in", [])
+        if ids:
+            must.append(FieldCondition(key="case_id", match=MatchAny(any=ids)))
+    return Filter(must=must) if must else None
+
+
+def embed_query(text: str, model) -> list[float]:
+    out = model.encode([text], return_dense=True, return_sparse=False, return_colbert_vecs=False)
+    return out["dense_vecs"][0].tolist()
 
 
 def search_pro_diverse(
     query: str,
-    tokenizer,
-    bi_model,
-    device,
-    index,
+    bge_model,
+    client,
     reranker,
     filter_year=None,
     year_from=None,
@@ -621,19 +628,33 @@ def search_pro_diverse(
             )
             print(f"[*] Citation pin: '{cited_case['title']}'")
 
-    all_vectors = [embed_query(qv, tokenizer, bi_model, device) for qv in query_variants]
-    for i, qv in enumerate(query_variants):
-        variant_results = index.query(
-            vector=all_vectors[i],
-            top_k=per_variant_k,
-            include_metadata=True,
-            filter=filter_meta if filter_meta else None,
-            namespace=namespace,
-        ).matches
-        for m in variant_results:
-            prev = merged_by_id.get(m.id)
-            if prev is None or getattr(m, "score", float("-inf")) > getattr(prev, "score", float("-inf")):
-                merged_by_id[m.id] = m
+    qdrant_filter = _build_qdrant_filter(filter_meta)
+    for qv in query_variants:
+        out = bge_model.encode([qv], return_dense=True, return_sparse=True, return_colbert_vecs=False)
+        dense = out["dense_vecs"][0].tolist()
+        sw = out["lexical_weights"][0]
+        sparse = SparseVector(
+            indices=[int(k) for k in sw.keys()],
+            values=[float(v) for v in sw.values()],
+        )
+        res = client.query_points(
+            collection_name=COLLECTION_NAME,
+            prefetch=[
+                Prefetch(query=dense, using="dense", limit=per_variant_k),
+                Prefetch(query=NamedSparseVector(name="sparse", vector=sparse), using="sparse", limit=per_variant_k),
+            ],
+            query=FusionQuery(fusion=Fusion.RRF),
+            limit=per_variant_k,
+            with_payload=True,
+            query_filter=qdrant_filter,
+        )
+        for p in res.points:
+            payload = p.payload or {}
+            chunk_id = f"{payload.get('case_id','unknown')}_chunk_{payload.get('chunk_index',0)}"
+            m = SimpleNamespace(id=chunk_id, metadata=payload, score=p.score)
+            prev = merged_by_id.get(chunk_id)
+            if prev is None or p.score > getattr(prev, "score", float("-inf")):
+                merged_by_id[chunk_id] = m
 
     initial_results = list(merged_by_id.values())
 
@@ -764,16 +785,14 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    tokenizer, bi_model, device, index, reranker = setup(local_only=not args.allow_online)
+    bge_model, client, reranker = setup(local_only=not args.allow_online)
 
     if args.query:
         query = " ".join(args.query)
         results = search_pro_diverse(
             query,
-            tokenizer,
-            bi_model,
-            device,
-            index,
+            bge_model,
+            client,
             reranker,
             filter_year=args.year,
             historical=args.historical,
@@ -810,10 +829,8 @@ if __name__ == "__main__":
             t0 = time.time()
             results = search_pro_diverse(
                 query,
-                tokenizer,
-                bi_model,
-                device,
-                index,
+                bge_model,
+                client,
                 reranker,
                 namespace=args.namespace,
                 use_queryfy=not args.no_queryfy,
