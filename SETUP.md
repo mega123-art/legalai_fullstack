@@ -1,120 +1,156 @@
 # LegalAI — Setup Guide
 
-Everything needed to run the full stack on Mac Mini M4.
+Indian Supreme Court search and analysis. BGE-M3 hybrid search (dense + sparse) on Qdrant Cloud, answers via Gemini Flash.
+
+---
+
+## Architecture
+
+```
+User → Frontend (Next.js) → Backend (FastAPI)
+                                  ├── BGE-M3 query embed
+                                  ├── Qdrant Cloud (429k SC chunks)
+                                  ├── BGE reranker
+                                  └── Gemini Flash via OpenRouter
+```
 
 ---
 
 ## Prerequisites
 
-| Tool | Version | Install |
-|------|---------|---------|
-| Python | 3.11+ | `brew install python@3.11` |
-| Node.js | 18+ | `brew install node` |
-| PostgreSQL | 15+ | `brew install postgresql@15 && brew services start postgresql@15` |
-| Ollama | latest | `brew install ollama && ollama serve` |
-| Llama 3.1 8B | — | `ollama pull llama3.1:8b` |
-| Cloudflare Tunnel | latest | `brew install cloudflared` |
-
-### Verify Services Running
-
-```bash
-# PostgreSQL
-pg_isready
-# → accepting connections
-
-# Ollama
-curl http://localhost:11434/api/tags
-# → {"models":[{"name":"llama3.1:8b",...}]}
-```
+| Tool | Version | Install (Linux) |
+|------|---------|-----------------|
+| Python | 3.11+ | `sudo apt install python3.11 python3-pip` |
+| Node.js | 18+ | `sudo apt install nodejs npm` |
+| PostgreSQL | 15+ | `sudo apt install postgresql` |
+| cloudflared | latest | see Step 5 |
 
 ---
 
-## 1. Database
+## 1. Get the Data (from Parth)
+
+Download `legal_data_for_server.zip` from Google Drive (link from Parth) and extract:
 
 ```bash
-createdb legalai
+unzip legal_data_for_server.zip
+# Creates: processed/  and  catalog.db
 ```
 
-Tables auto-create on first backend start (SQLAlchemy `create_all`).
+Place them wherever you like — you'll point `.env` at them.
 
 ---
 
-## 2. API Keys
+## 2. Download SC PDFs
 
-### Pinecone
-- Dashboard: https://app.pinecone.io
-- Copy your API key (same one used in `legal-data/.env`)
+PDFs are served from disk for the in-app viewer. Download from public S3:
 
-### Gemini Flash 2.0
-- Dashboard: https://aistudio.google.com/apikey
-- Create API key → copy
+```bash
+chmod +x setup_server.sh
+./setup_server.sh
+```
 
-### Clerk (Auth)
-- Dashboard: https://dashboard.clerk.com
-- Create application → enable Google OAuth + Email/Password
-- Copy **Publishable Key** and **Secret Key**
-- Set redirect URLs:
-  - Sign-in: `/sign-in`
-  - Sign-up: `/sign-up`
-  - After sign-in: `/chat`
-  - After sign-up: `/chat`
+Or manually for specific years:
+
+```bash
+PDF_DIR="./pdfs"
+for year in 2006 2007 2008 2009 2010 2011 2012 2013 2014 2015 2016 2017 2018 2019 2020 2021 2022 2023 2024; do
+    mkdir -p "$PDF_DIR/$year"
+    curl -L "https://indian-supreme-court-judgments.s3.amazonaws.com/data/tar/year=$year/english/english.tar" \
+         -o "$PDF_DIR/$year/english.tar"
+    tar -xf "$PDF_DIR/$year/english.tar" -C "$PDF_DIR/$year/"
+    rm "$PDF_DIR/$year/english.tar"
+done
+```
+
+> 2025/2026 not on public S3 (~988 cases). Those cases return "PDF unavailable" — everything else works.
 
 ---
 
 ## 3. Backend Setup
 
-```bash
-cd /Users/parthagrawal99/legal-ai/backend
+### Install dependencies
 
-# Create .env from template
-cp .env.example .env
+```bash
+cd backend
+pip3 install -r requirements.txt
 ```
 
-### Fill `.env`:
+> First install is heavy (~3GB): BGE-M3, reranker, torch, qdrant-client.
+
+### Download ML models
+
+```bash
+python3 -c "
+from huggingface_hub import snapshot_download
+snapshot_download('BAAI/bge-m3')
+snapshot_download('BAAI/bge-reranker-v2-m3')
+"
+```
+
+### Configure `.env`
+
+```bash
+cp .env.example .env   # if exists, else create manually
+```
+
+Fill `backend/.env`:
 
 ```env
-PINECONE_API_KEY=your-pinecone-key
-GEMINI_API_KEY=your-gemini-key
+# Qdrant Cloud — get from Parth
+QDRANT_URL=https://YOUR_CLUSTER.qdrant.io:6333
+QDRANT_API_KEY=YOUR_QDRANT_API_KEY
+
+# OpenRouter — get from Parth
+OPENROUTER_API_KEY=YOUR_OPENROUTER_API_KEY
+OPENROUTER_BREAKDOWN_MODEL=google/gemini-2.5-pro
+OPENROUTER_SUMMARY_MODEL=google/gemini-2.5-pro
+OPENROUTER_EXPANSION_MODEL=google/gemini-2.0-flash-001
+
+# Data paths — adjust to where you extracted the zip
+PDF_BASE_PATH=/path/to/pdfs
+PROCESSED_DATA_PATH=/path/to/processed
+CATALOG_DB_PATH=/path/to/catalog.db
+LEGAL_DATA_PATH=/path/to/legal-data
+
+# Database
 DATABASE_URL=postgresql+asyncpg://localhost/legalai
-OLLAMA_URL=http://localhost:11434
-PROCESSED_DATA_PATH=/Users/parthagrawal99/legal-data/processed
-CATALOG_DB_PATH=/Users/parthagrawal99/legal-data/processed/catalog.db
-LEGAL_DATA_PATH=/Users/parthagrawal99/legal-data
+
 TOP_K_FINAL=5
 ```
 
-### Install dependencies:
+### Create database
 
 ```bash
-pip install -r requirements.txt
+createdb legalai
+# Tables auto-create on first backend start
 ```
 
-> **Note:** ML packages (torch, transformers, sentence-transformers, pinecone-client) are already installed system-wide from the data pipeline work. The backend imports them via `sys.path` from `/Users/parthagrawal99/legal-data/`.
-
-### Run:
+### Run
 
 ```bash
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
+uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
-First start loads InLegalBERT + reranker (~30s), then:
+Expected startup output:
 
 ```
-[startup] Loading InLegalBERT + reranker...
-[search_service] Models loaded.
-INFO:     Uvicorn running on http://0.0.0.0:8000
+[startup] Initialising database...
+[setup] Loading BGE-M3...
+[setup] Qdrant connected: https://...qdrant.io:6333
+[search_service] BGE-M3 + Qdrant ready.
+INFO: Uvicorn running on http://0.0.0.0:8000
 ```
 
-### Verify:
+BGE-M3 loads in ~20–30s on first start.
+
+### Verify
 
 ```bash
 curl http://localhost:8000/health
-# → {"status":"ok"}
 
-# Test search (takes ~5-10s first time)
 curl -X POST http://localhost:8000/api/search \
   -H "Content-Type: application/json" \
-  -d '{"query": "SARFAESI auction without proper notice"}'
+  -d '{"query": "bail in PMLA twin conditions"}'
 ```
 
 ---
@@ -122,178 +158,115 @@ curl -X POST http://localhost:8000/api/search \
 ## 4. Frontend Setup
 
 ```bash
-cd /Users/parthagrawal99/legal-ai/frontend
+cd frontend
+npm install
 ```
 
-### Fill `.env.local`:
+Fill `frontend/.env.local`:
 
 ```env
-NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_...
-CLERK_SECRET_KEY=sk_test_...
-NEXT_PUBLIC_API_URL=http://localhost:8000
-NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in
-NEXT_PUBLIC_CLERK_SIGN_UP_URL=/sign-up
+NEXT_PUBLIC_API_URL=http://localhost:8000   # change to your domain in production
 ```
 
-> **Without Clerk keys:** App still works with a demo user. Auth screens won't render but `/chat` is accessible.
-
-### Install & run:
+Run:
 
 ```bash
-npm install
-npm run dev
+npm run dev       # development
+npm run build && npm start   # production
 ```
-
-Open http://localhost:3000 → redirects to `/sign-in` (or `/chat` if Clerk not configured).
 
 ---
 
-## 5. Cloudflare Tunnel (Production)
+## 5. Cloudflare Tunnel (Expose to Internet)
 
-Expose both services through a custom domain.
+Get tunnel token from Parth (created in Cloudflare Zero Trust dashboard).
+
+### Install cloudflared (Linux)
 
 ```bash
-# Login (one-time)
-cloudflared tunnel login
-
-# Create tunnel
-cloudflared tunnel create legalai
-
-# Configure
-cat > ~/.cloudflared/config.yml << 'EOF'
-tunnel: legalai
-credentials-file: /Users/parthagrawal99/.cloudflared/<TUNNEL_ID>.json
-
-ingress:
-  - hostname: app.yourdomain.com
-    service: http://localhost:3000
-  - hostname: api.yourdomain.com
-    service: http://localhost:8000
-  - service: http_status:404
-EOF
-
-# Add DNS records
-cloudflared tunnel route dns legalai app.yourdomain.com
-cloudflared tunnel route dns legalai api.yourdomain.com
-
-# Run
-cloudflared tunnel run legalai
+curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
+     -o cloudflared
+chmod +x cloudflared
+sudo mv cloudflared /usr/local/bin/
 ```
 
-Update frontend `.env.local` for production:
+### Run tunnel
+
+```bash
+cloudflared tunnel run --token YOUR_TOKEN_FROM_PARTH
+```
+
+### Run as service (stays up after logout/reboot)
+
+```bash
+sudo cloudflared service install YOUR_TOKEN_FROM_PARTH
+sudo systemctl start cloudflared
+sudo systemctl enable cloudflared
+```
+
+Update frontend `.env.local` with the public domain:
+
 ```env
 NEXT_PUBLIC_API_URL=https://api.yourdomain.com
 ```
 
-### Auto-start on boot (launchd):
-
-```bash
-cloudflared service install
-# This creates a launchd plist that starts the tunnel on boot
-```
-
 ---
 
-## 6. Mac Mini Always-On
-
-### Keep services running after SSH disconnect:
+## 6. Keep Services Running
 
 ```bash
-# Backend
-nohup uvicorn main:app --host 0.0.0.0 --port 8000 > ~/legalai-backend.log 2>&1 &
+# Backend (nohup)
+nohup uvicorn main:app --host 0.0.0.0 --port 8000 > ~/backend.log 2>&1 &
 
-# Frontend
-cd /Users/parthagrawal99/legal-ai/frontend
-nohup npm run start -- -p 3000 > ~/legalai-frontend.log 2>&1 &
+# Frontend (nohup)
+cd frontend
+npm run build
+nohup npm start > ~/frontend.log 2>&1 &
 
-# Ollama (already a service via brew)
-brew services start ollama
+# Check logs
+tail -f ~/backend.log
+tail -f ~/frontend.log
 ```
-
-Or use **launchd plist** for each (recommended):
-
-```bash
-# Example: /Library/LaunchDaemons/com.legalai.backend.plist
-# Restarts automatically on crash
-```
-
-### Prevent sleep:
-
-```bash
-sudo pmset -a disablesleep 1
-sudo pmset -a sleep 0
-```
-
----
-
-## File Locations
-
-| What | Path |
-|------|------|
-| Processed case JSONs | `/Users/parthagrawal99/legal-data/processed/{year}/*.json` |
-| SQLite catalog | `/Users/parthagrawal99/legal-data/processed/catalog.db` |
-| Embedded IDs tracker | `/Users/parthagrawal99/legal-data/embedded_ids.txt` |
-| Search scripts | `/Users/parthagrawal99/legal-data/search_pro_*.py` |
-| Backend code | `/Users/parthagrawal99/legal-ai/backend/` |
-| Frontend code | `/Users/parthagrawal99/legal-ai/frontend/` |
-| Backend .env | `/Users/parthagrawal99/legal-ai/backend/.env` |
-| Frontend .env | `/Users/parthagrawal99/legal-ai/frontend/.env.local` |
 
 ---
 
 ## Port Map
 
-| Service | Port | URL |
-|---------|------|-----|
-| Next.js frontend | 3000 | http://localhost:3000 |
-| FastAPI backend | 8000 | http://localhost:8000 |
-| PostgreSQL | 5432 | postgresql://localhost/legalai |
-| Ollama | 11434 | http://localhost:11434 |
+| Service | Port |
+|---------|------|
+| Next.js frontend | 3000 |
+| FastAPI backend | 8000 |
+| PostgreSQL | 5432 |
 
 ---
 
-## Monthly Costs
+## What Parth Sends You
 
-| Item | Cost |
-|------|------|
-| Pinecone (free tier) | ₹0 |
-| Gemini Flash 2.0 (~1000 breakdowns/mo) | ~₹400 |
-| Custom domain | ~₹70/mo (₹800/yr) |
-| Clerk (free tier, 10k MAUs) | ₹0 |
-| **Total** | **~₹500/mo** |
+| Item | How |
+|------|-----|
+| `legal_data_for_server.zip` | Google Drive (processed JSONs + catalog.db) |
+| Qdrant URL + API key | WhatsApp/Signal |
+| OpenRouter API key | WhatsApp/Signal |
+| Cloudflare tunnel token | WhatsApp/Signal |
 
 ---
 
 ## Troubleshooting
 
-**Backend won't start — "Pinecone API key not found"**
-→ Check `.env` file exists and has `PINECONE_API_KEY` set.
+**"BGE-M3 model not found"**
+→ Run the snapshot_download step above. Set `TRANSFORMERS_OFFLINE=0` if behind a proxy.
 
-**Backend won't start — "TRANSFORMERS_OFFLINE" error**
-→ Models not cached locally. Run once with `--allow-online`:
-```bash
-# From legal-data dir
-python3 search_test.py --allow-online "test query"
-```
+**"Qdrant connection refused"**
+→ Check `QDRANT_URL` and `QDRANT_API_KEY` in `.env`. URL must include `:6333`.
 
-**"Summary unavailable — Ollama not responding"**
-→ Check Ollama running: `curl http://localhost:11434/api/tags`
-→ Pull model if missing: `ollama pull llama3.1:8b`
+**"PDF missing on disk"**
+→ Run the PDF download script. Check `PDF_BASE_PATH` in `.env` matches where you downloaded.
 
-**Clerk redirect loop**
-→ Check `NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in` is set in `.env.local`
-→ Restart `npm run dev` after changing env vars.
+**"Case not found" on breakdown**
+→ `processed/` folder not found or wrong path in `PROCESSED_DATA_PATH`.
 
-**Breakdown returns fallback (Llama instead of Gemini)**
-→ Check `GEMINI_API_KEY` in backend `.env`. Gemini has rate limits on free tier — wait and retry.
+**Search returns no results**
+→ Qdrant credentials wrong, or BGE-M3 not loaded. Check backend startup logs.
 
-**Case not found (404 on breakdown/summary)**
-→ `case_id` from Pinecone is the hash ID (e.g. `4f98f1ef122b`), not the INSC citation. Verify with:
-```bash
-curl -X POST http://localhost:8000/api/breakdown \
-  -H "Content-Type: application/json" \
-  -d '{"case_id": "4f98f1ef122b", "year": 2022}'
-```
-
-**SQLite catalog missing**
-→ Rebuild: `cd /Users/parthagrawal99/legal-data && python3 search_pro_intelligent.py --rebuild-catalog`
+**Cloudflare tunnel won't start**
+→ Token expired — ask Parth for a new one from Zero Trust dashboard.
