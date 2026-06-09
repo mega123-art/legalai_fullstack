@@ -1,6 +1,12 @@
 import type { SearchResponse, CaseBreakdown, Session, ChatMessage } from "./types";
 
-const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+// Fix: On the browser, use same-origin paths so the Next.js rewrite proxies
+// them to the backend — no cross-origin request, no CORS issue.
+// On the server (SSR / Node), call the backend URL directly.
+const BASE =
+  typeof window !== "undefined"
+    ? "" // client: /api/* → rewritten by next.config.ts to the backend
+    : (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"); // SSR
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
