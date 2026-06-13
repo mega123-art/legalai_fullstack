@@ -18,11 +18,11 @@ _client = AsyncOpenAI(
 )
 
 _SUMMARY_PROMPT = (
-    "You are a senior Indian lawyer briefing a colleague. "
     "Summarize this Supreme Court judgment in exactly 150 words. "
     "Focus on: (1) the core legal issue, (2) how the court decided, "
     "(3) the legal principle or precedent established. "
-    "Write in plain English — no Latin, no jargon.\n\n"
+    "Write in plain English — no Latin, no jargon. "
+    "Start directly with the substance — no preamble, no 'Here is a summary', no greeting.\n\n"
     "Case text:\n{combined}"
 )
 

@@ -94,29 +94,32 @@ export function streamBreakdown(
             if (line.startsWith("event: ")) event = line.slice(7);
             else if (line.startsWith("data: ")) data += line.slice(6);
           }
-          const payload = data.replace(/\\n/g, "\n");
-
-          if (payload === "[DONE]") {
+          // `data` is the raw SSE payload. For JSON events the server's
+          // json.dumps already encoded newlines as valid \n escapes — keep
+          // them as-is so JSON.parse succeeds. Only token text needs the
+          // transport-level \\n unescaped back to real newlines.
+          if (data === "[DONE]") {
             handlers.onDone();
             return;
           }
           if (event === "meta") {
             try {
-              const p = JSON.parse(payload);
+              const p = JSON.parse(data);
               handlers.onMeta(p.meta, !!p.cached);
             } catch {}
           } else if (event === "token") {
-            acc += payload;
-            handlers.onToken(payload, acc);
+            const text = data.replace(/\\n/g, "\n");
+            acc += text;
+            handlers.onToken(text, acc);
           } else if (event === "final") {
             try {
-              handlers.onFinal(JSON.parse(payload));
+              handlers.onFinal(JSON.parse(data));
             } catch (e) {
               handlers.onError(e as Error);
             }
           } else if (event === "error") {
             try {
-              const p = JSON.parse(payload);
+              const p = JSON.parse(data);
               handlers.onError(new Error(p.message || "Stream error"));
             } catch {
               handlers.onError(new Error("Stream error"));
@@ -158,13 +161,18 @@ export function streamSummary(
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
+      let buffer = "";
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        const chunk = decoder.decode(value, { stream: true });
-        for (const line of chunk.split("\n")) {
+        buffer += decoder.decode(value, { stream: true });
+        // Keep the last (possibly incomplete) line buffered until its
+        // terminating newline arrives in a later chunk.
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) {
           if (line.startsWith("data: ")) {
             const data = line.slice(6);
             if (data === "[DONE]") {
@@ -175,6 +183,11 @@ export function streamSummary(
             onToken(data.replace(/\\n/g, "\n"));
           }
         }
+      }
+      // Flush any trailing buffered line.
+      if (buffer.startsWith("data: ")) {
+        const data = buffer.slice(6);
+        if (data !== "[DONE]") onToken(data.replace(/\\n/g, "\n"));
       }
       onDone();
     })
